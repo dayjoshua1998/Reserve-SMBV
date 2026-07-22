@@ -40,6 +40,29 @@ playwright install chromium
 cp .env.example .env      # then edit with your real login
 ```
 
+## Prime the login ahead of time (recommended)
+
+So there's **zero login on the hot path**, log in once before the event and
+the session is saved to a persistent profile (`.browser-profile/`) that the
+real run reuses:
+
+```bash
+python -m src.sniper --prime
+```
+
+It opens a visible browser. If your `.env` has creds it logs in automatically;
+otherwise log in by hand (and clear any 2FA) then press Enter. Re-run it if
+the session ever looks stale. **Run it in the same place the real snipe will
+run** — the saved session lives on that machine's disk.
+
+## Payment: handed off to you
+
+The bot **never enters card details.** When an attempt reaches the payment /
+checkout page it treats the spot as secured, sounds an alert, and leaves the
+logged-in browser parked on the payment page for **you** to finish by hand
+(`STOP_AT_PAYMENT = True`). Systems typically hold the spot for a few minutes
+at checkout — enough time to type a card in.
+
 ## ‼️ Before race day: capture the real selectors
 
 The registration flow ships with **placeholder selectors** because the site
@@ -58,6 +81,14 @@ python -m src.sniper
 
 Start it a few minutes early. It syncs the clock, warms up, and holds until
 9:00:00 CDT on its own. Keep the machine awake and on stable internet.
+
+Commands:
+
+| Command | What it does |
+|---|---|
+| `python -m src.sniper --prime` | Log in ahead of time, save the session, exit. |
+| `python -m src.sniper --dry-run` | Fire 20s out; walk the flow **without** submitting. |
+| `python -m src.sniper` | The real run. |
 
 ## Configuration
 

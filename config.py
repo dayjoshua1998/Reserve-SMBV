@@ -51,6 +51,25 @@ DIVISION_PRIORITY = [
 WIN_CONDITION = "each_event"
 
 
+# ---------------------------------------------------------------------------
+# Payment handoff
+# ---------------------------------------------------------------------------
+# The bot NEVER enters payment details. When an attempt reaches the
+# checkout/payment page, that counts as "spot secured" -- the bot stops
+# racing that event, alerts you loudly, and leaves the browser parked on the
+# payment page for YOU to finish by hand. (Most systems hold the spot for a
+# few minutes at checkout.)
+STOP_AT_PAYMENT = True
+
+# Audible alert on handoff so you don't miss it if you've stepped away.
+ALERT_SOUND = True
+
+# Attempt-result statuses used across the browser + API paths.
+STATUS_CONFIRMED = "confirmed"   # fully registered, no payment needed
+STATUS_CHECKOUT = "checkout"     # spot held at payment page -> hand off to human
+STATUS_MISS = "miss"             # normal miss, keep racing
+
+
 @dataclass(frozen=True)
 class Target:
     """A single (event, division) we can attempt."""

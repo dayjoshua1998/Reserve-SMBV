@@ -15,6 +15,7 @@ orchestrator in sniper.py can time and retry them cheaply.
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass
 
 from playwright.sync_api import Page, TimeoutError as PWTimeout
@@ -81,12 +82,12 @@ def park_on_event(page: Page, url: str) -> None:
     page.goto(url, wait_until="networkidle")
 
 
-def attempt_register(page: Page, division: str) -> bool:
+def attempt_register(page: Page, division: str) -> str:
     """
     One full attempt for a single division on the currently-loaded event page:
-      Register Now -> pick division -> submit.
+      Register Now -> pick division -> submit -> reach checkout OR confirmation.
 
-    Returns True on a confirmed reservation, False otherwise. Must be fast and
+    Returns one of config.STATUS_{CHECKOUT,CONFIRMED,MISS}. Must be fast and
     must NOT raise on the ordinary "division full / button missing" case --
     that's a normal miss we retry, not an error.
     """
@@ -113,19 +114,45 @@ def attempt_register(page: Page, division: str) -> bool:
         submit.wait_for(state="visible", timeout=config.ATTEMPT_TIMEOUT_MS)
         submit.click()
 
-        # 3) Confirm success. This is the MOST important selector to get right
-        #    -- it decides whether we stop or keep racing.
-        #    TODO(selector): a confirmation banner / "You're registered" text /
-        #    redirect to a confirmation URL.
-        page.wait_for_selector(
-            "text=/registered|confirmed|reservation complete/i",
-            timeout=config.ATTEMPT_TIMEOUT_MS,
-        )
-        return True
+        # 3) Decide the outcome. We race the two success signals against a
+        #    "still full / rejected" outcome. Whichever selector resolves first
+        #    wins. TODO(selector): make these match the REAL pages.
+        return _classify_outcome(page)
 
     except PWTimeout:
-        return False
+        return config.STATUS_MISS
     except Exception as exc:  # noqa: BLE001
         # Log but treat as a miss so the loop keeps racing.
         print(f"[attempt] non-fatal error for {division!r}: {exc}")
-        return False
+        return config.STATUS_MISS
+
+
+def _classify_outcome(page: Page) -> str:
+    """
+    After submitting, work out whether we landed on a payment/checkout page
+    (spot held -> hand off), a plain confirmation (done, no payment), or
+    neither (miss). TODO(selector): tune all three matchers to the real site.
+    """
+    # Checkout / payment: the most likely "we grabbed it" state.
+    # e.g. a "Payment"/"Checkout" heading or a "Card number"/"Billing" field.
+    # These regexes are placeholders until captured.
+    checkout = page.get_by_text(
+        re.compile(r"payment|checkout|card number|billing", re.I)
+    ).first
+    # Plain confirmation (free event / no payment step).
+    confirmed = page.get_by_text(
+        re.compile(r"registered|confirmed|reservation complete", re.I)
+    ).first
+
+    # Give the page a moment for one of the signals to appear.
+    deadline_ms = config.ATTEMPT_TIMEOUT_MS
+    try:
+        checkout.wait_for(state="visible", timeout=deadline_ms)
+        return config.STATUS_CHECKOUT
+    except PWTimeout:
+        pass
+    try:
+        confirmed.wait_for(state="visible", timeout=1000)
+        return config.STATUS_CONFIRMED
+    except PWTimeout:
+        return config.STATUS_MISS

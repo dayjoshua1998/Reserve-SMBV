@@ -33,27 +33,23 @@ def log(msg: str) -> None:
 
 def _attempt(target, page, http_client, session, dry_run, current_event):
     """
-    Run one attempt for `target`, returns (won, how, current_event).
+    Run one attempt for `target`, returns (status, how, current_event).
 
-    Hybrid order: try the raw-HTTP register first (no navigation, fastest);
-    if that path is unavailable or errors, fall back to the browser flow.
-    `current_event` tracks which event page the browser is parked on so we
-    only navigate when we must.
+    status is one of config.STATUS_*. Hybrid order: try the raw-HTTP register
+    first (no navigation, fastest); if that path is unavailable or errors,
+    fall back to the browser flow. `current_event` tracks which event page the
+    browser is parked on so we only navigate when we must.
     """
     if dry_run:
-        return False, "dry", current_event
+        return config.STATUS_MISS, "dry", current_event
 
     # --- Fast path: raw HTTP ---
     if config.EXECUTION_MODE == "hybrid" and http_client is not None:
         try:
-            won = api_register.register_via_api(
+            status = api_register.register_via_api(
                 http_client, session, target.event_id, target.division
             )
-            if won:
-                return True, "api", current_event
-            # A clean miss from the API still counts as an attempt; only fall
-            # through to the browser when the API path can't be used at all.
-            return False, "api", current_event
+            return status, "api", current_event
         except Exception as exc:  # noqa: BLE001 -- e.g. no captured division id
             # Fall back to the browser flow for this and subsequent attempts.
             print(f"[hybrid] API path unusable ({exc}); using browser flow.")
@@ -65,12 +61,38 @@ def _attempt(target, page, http_client, session, dry_run, current_event):
             current_event = target.event_id
         except Exception as exc:  # noqa: BLE001
             print(f"[browser] nav to {target.event_id} failed: {exc}")
-            return False, "browser", None
+            return config.STATUS_MISS, "browser", None
     else:
         page.reload(wait_until="domcontentloaded")
 
-    won = attempt_register(page, target.division)
-    return won, "browser", current_event
+    status = attempt_register(page, target.division)
+    return status, "browser", current_event
+
+
+def _alert(msg: str) -> None:
+    """Loud, hard-to-miss handoff signal (terminal bell + banner)."""
+    bell = "\a" if config.ALERT_SOUND else ""
+    line = "=" * 60
+    print(f"{bell}\n{line}\n  🔔  {msg}\n{line}\n", flush=True)
+
+
+def _handoff_to_payment(page, target, how) -> None:
+    """
+    We've secured a spot that needs payment. Make sure the (logged-in) browser
+    is on the payment page and hand off to the human. The bot never enters
+    card details.
+    """
+    # If the grab happened over the API, the browser isn't on the checkout page
+    # yet -- bring it to the event so the human can complete payment there.
+    if how == "api":
+        try:
+            page.goto(target.url, wait_until="domcontentloaded")
+        except Exception as exc:  # noqa: BLE001
+            print(f"[handoff] could not open {target.url}: {exc}")
+    _alert(
+        f"SPOT SECURED for event {target.event_id} ({target.division}). "
+        "Finish PAYMENT in the browser window NOW -- the hold won't last long."
+    )
 
 
 def run(dry_run: bool = False) -> int:
@@ -147,7 +169,7 @@ def run(dry_run: bool = False) -> int:
 
                 attempt_no += 1
                 t0 = time.perf_counter()
-                won, how, current_event_url = _attempt(
+                status, how, current_event_url = _attempt(
                     target=target,
                     page=page,
                     http_client=http_client,
@@ -156,18 +178,27 @@ def run(dry_run: bool = False) -> int:
                     current_event=current_event_url,
                 )
                 dt_ms = (time.perf_counter() - t0) * 1000
-                status = "SUCCESS" if won else "miss"
                 log(f"#{attempt_no} {target.event_id}:{target.division} "
                     f"[{how}] -> {status} ({dt_ms:.0f}ms)")
 
+                won = status in (config.STATUS_CONFIRMED, config.STATUS_CHECKOUT)
                 if won:
                     won_events.add(target.event_id)
+
+                    if status == config.STATUS_CHECKOUT and config.STOP_AT_PAYMENT:
+                        # Human finishes payment; don't keep racing this event.
+                        _handoff_to_payment(page, target, how)
+                        current_event_url = target.event_id
+                    else:
+                        _alert(f"Registered for event {target.event_id} "
+                               f"({target.division}) -- no payment needed.")
+
                     if config.WIN_CONDITION == "one_spot":
-                        log(f"Got a spot in event {target.event_id}. Done.")
+                        log(f"Secured event {target.event_id}. Done.")
                         _keep_open(context)
                         return 0
                     if won_events.issuperset(config.EVENT_IDS):
-                        log("Got a spot in every event. Done.")
+                        log("Secured a spot in every event. Done.")
                         _keep_open(context)
                         return 0
 
@@ -176,6 +207,47 @@ def run(dry_run: bool = False) -> int:
         log("Gave up after retry window. No spot secured.")
         _keep_open(context)
         return 1
+
+
+def prime() -> int:
+    """
+    Log in AHEAD of race day and persist the session to disk.
+
+    Run this any time before the event (e.g. the night before). It opens the
+    browser, establishes a logged-in session in USER_DATA_DIR, verifies it,
+    and exits -- so the real run reuses that session with zero login on the
+    hot path. If VBL_EMAIL/VBL_PASSWORD are set it logs in automatically;
+    otherwise it waits for you to log in by hand.
+    """
+    with sync_playwright() as pw:
+        context = pw.chromium.launch_persistent_context(
+            user_data_dir=config.USER_DATA_DIR,
+            headless=False,  # always visible so you can log in / solve any 2FA
+        )
+        page = context.pages[0] if context.pages else context.new_page()
+
+        if is_logged_in(page):
+            log("Already logged in -- session is primed. ✅")
+            context.close()
+            return 0
+
+        try:
+            creds = LoginCreds.from_env()
+            log("Logging in from VBL_EMAIL/VBL_PASSWORD...")
+            login(page, creds)
+            log("Login succeeded -- session saved to the profile. ✅")
+        except RuntimeError:
+            _alert("No credentials in .env. Log in by hand in the browser "
+                   "window, then press Enter here.")
+            input("Press Enter once you're logged in... ")
+            if not is_logged_in(page):
+                log("Still not detecting a session. Check selectors / try again.")
+                context.close()
+                return 1
+            log("Manual login detected -- session saved. ✅")
+
+        context.close()
+        return 0
 
 
 def _keep_open(context) -> None:
@@ -197,6 +269,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Volleyball registration sniper")
     parser.add_argument("--dry-run", action="store_true",
                         help="Fire 20s from now and skip the final submit click.")
+    parser.add_argument("--prime", action="store_true",
+                        help="Log in ahead of time and save the session; then exit.")
     args = parser.parse_args()
 
     # Load .env if python-dotenv is installed (optional convenience).
@@ -206,6 +280,8 @@ def main() -> None:
     except ImportError:
         pass
 
+    if args.prime:
+        sys.exit(prime())
     sys.exit(run(dry_run=args.dry_run))
 
 
