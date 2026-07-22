@@ -1,0 +1,16 @@
+# Secrets
+.env
+
+# Persistent browser session (may contain auth cookies)
+.browser-profile/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Playwright traces / screenshots
+*.zip
+trace/
+screenshots/
