@@ -46,15 +46,22 @@ class LoginCreds:
         return cls(email=email, password=password)
 
 
+def _signin_button(page: Page):
+    """
+    The header "Sign In" button. exact=True avoids also matching the
+    "Close sign in dialog" X button; .first avoids the dialog's own submit
+    button once the dialog is open.
+    """
+    return page.get_by_role("button", name="Sign In", exact=True).first
+
+
 def is_logged_in(page: Page) -> bool:
     """
     Logged-out event pages show a "Sign In" button; logged-in ones don't.
     """
     page.goto(_first_event_url(), wait_until="domcontentloaded")
     try:
-        page.get_by_role("button", name="Sign In").wait_for(
-            state="visible", timeout=3000
-        )
+        _signin_button(page).wait_for(state="visible", timeout=3000)
         return False
     except PWTimeout:
         return True
@@ -65,17 +72,17 @@ def login(page: Page, creds: LoginCreds) -> None:
     Two-step sign-in: email (Enter) then password (Enter). Assumes a page with
     the "Sign In" button; navigates to the event page first if needed.
     """
-    if page.get_by_role("button", name="Sign In").count() == 0:
+    if page.get_by_role("button", name="Sign In", exact=True).count() == 0:
         page.goto(_first_event_url(), wait_until="domcontentloaded")
 
-    page.get_by_role("button", name="Sign In").click()
+    _signin_button(page).click()
     page.get_by_label("Email").fill(creds.email)
     page.get_by_label("Email").press("Enter")
     page.get_by_label("Password", exact=True).fill(creds.password)
     page.get_by_label("Password", exact=True).press("Enter")
 
-    # Sign-in is done when the "Sign In" button is gone.
-    page.get_by_role("button", name="Sign In").wait_for(state="hidden", timeout=15000)
+    # Sign-in is done when the dialog closes -- i.e. the password field is gone.
+    page.get_by_label("Password", exact=True).wait_for(state="hidden", timeout=15000)
 
 
 def park_on_event(page: Page, url: str) -> None:
