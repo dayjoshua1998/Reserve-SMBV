@@ -95,11 +95,16 @@ def _handoff_to_payment(page, target, how) -> None:
     )
 
 
-def run(dry_run: bool = False) -> int:
+def run(dry_run: bool = False, rehearse: bool = False) -> int:
     fire_epoch = config.FIRE_TIME.timestamp()
     if dry_run:
         fire_epoch = time.time() + 20  # fire 20s from now for testing
         log("DRY RUN: firing in 20s, will NOT click submit.")
+    if rehearse:
+        fire_epoch = time.time() + 8  # fire almost immediately
+        log("REHEARSAL: firing in 8s, browser mode, will STOP at the payment "
+            "screen (never pays). Safe to run while already registered -- just "
+            "don't complete payment.")
 
     # 1) Sync the clock up front (and again just before firing).
     offset = timesync.measure_offset(
@@ -133,9 +138,10 @@ def run(dry_run: bool = False) -> int:
         log(f"Parked on {targets[0].url}")
 
         # Borrow the logged-in session for the raw-HTTP hot path.
+        # Rehearsal forces the browser path so you can watch every screen.
         session = None
         http_client = None
-        if config.EXECUTION_MODE == "hybrid":
+        if config.EXECUTION_MODE == "hybrid" and not rehearse:
             session = api_register.extract_session(context)
             http_client = httpx.Client(http2=True)
             has_token = bool(session.get("token"))
@@ -271,6 +277,9 @@ def main() -> None:
                         help="Fire 20s from now and skip the final submit click.")
     parser.add_argument("--prime", action="store_true",
                         help="Log in ahead of time and save the session; then exit.")
+    parser.add_argument("--rehearse", action="store_true",
+                        help="Full dress rehearsal NOW in the browser; stops at "
+                             "the payment screen and never pays. Safe practice run.")
     args = parser.parse_args()
 
     # Load .env if python-dotenv is installed (optional convenience).
@@ -282,7 +291,7 @@ def main() -> None:
 
     if args.prime:
         sys.exit(prime())
-    sys.exit(run(dry_run=args.dry_run))
+    sys.exit(run(dry_run=args.dry_run, rehearse=args.rehearse))
 
 
 if __name__ == "__main__":

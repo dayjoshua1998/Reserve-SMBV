@@ -87,6 +87,7 @@ Commands:
 | Command | What it does |
 |---|---|
 | `python -m src.sniper --prime` | Log in ahead of time, save the session, exit. |
+| `python -m src.sniper --rehearse` | Dress rehearsal NOW in the browser; stops at the payment screen, never pays. Safe practice run. |
 | `python -m src.sniper --dry-run` | Fire 20s out; walk the flow **without** submitting. |
 | `python -m src.sniper` | The real run. |
 
