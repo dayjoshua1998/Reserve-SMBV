@@ -86,7 +86,9 @@ def login(page: Page, creds: LoginCreds) -> None:
 
 
 def park_on_event(page: Page, url: str) -> None:
-    page.goto(url, wait_until="networkidle")
+    # domcontentloaded is enough to interact; networkidle needlessly waits for
+    # every background request to settle.
+    page.goto(url, wait_until="domcontentloaded")
 
 
 def _division_locator(page: Page, division: str):

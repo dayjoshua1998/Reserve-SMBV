@@ -55,14 +55,19 @@ def _attempt(target, page, http_client, session, dry_run, current_event):
             print(f"[hybrid] API path unusable ({exc}); using browser flow.")
 
     # --- Fallback path: browser ---
-    # Always start each attempt from the clean event (info) page, so a retry
-    # after a half-finished wizard resets instead of getting lost.
-    try:
-        page.goto(target.url, wait_until="domcontentloaded")
-        current_event = target.event_id
-    except Exception as exc:  # noqa: BLE001
-        print(f"[browser] nav to {target.event_id} failed: {exc}")
-        return config.STATUS_MISS, "browser", None
+    # Start each attempt from the clean event (info) page so a retry after a
+    # half-finished wizard resets. Skip the nav if we're already parked there
+    # (e.g. the very first attempt right after warmup) to save a reload.
+    already_on_info = (
+        f"/event/{target.event_id}" in page.url and "tab=register" not in page.url
+    )
+    if not already_on_info:
+        try:
+            page.goto(target.url, wait_until="domcontentloaded")
+        except Exception as exc:  # noqa: BLE001
+            print(f"[browser] nav to {target.event_id} failed: {exc}")
+            return config.STATUS_MISS, "browser", None
+    current_event = target.event_id
 
     status = attempt_register(page, target.division)
     return status, "browser", current_event
