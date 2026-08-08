@@ -37,7 +37,8 @@ GIVE_UP_AFTER_SECONDS = 180
 # ---------------------------------------------------------------------------
 BASE_URL = "https://volleyballbeach.volleyballlife.com"
 
-EVENT_IDS = [39809, 39810]
+# Wednesday 6:15pm event. (Earlier 39809/39810 were the wrong events.)
+EVENT_IDS = [38047]
 
 # Division labels EXACTLY as they appear on the event page. Order = priority.
 DIVISION_PRIORITY = [
@@ -48,7 +49,8 @@ DIVISION_PRIORITY = [
 # Win condition:
 #   "one_spot"   -> stop the instant any registration succeeds.
 #   "each_event" -> keep going until we have a spot in every event in EVENT_IDS.
-WIN_CONDITION = "each_event"
+# Single target event (Wednesday only), so "one_spot" = stop as soon as we're in.
+WIN_CONDITION = "one_spot"
 
 
 # ---------------------------------------------------------------------------

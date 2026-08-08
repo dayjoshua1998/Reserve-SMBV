@@ -4,9 +4,9 @@ A **registration sniper** for VolleyballLife beach events. At a precise
 instant it logs in, grabs a spot in a priority division, and submits as fast
 as possible — with a fallback ladder if the top choice is gone.
 
-Target run: **9:00:00 AM CDT, July 22, 2026** for events `39809` and `39810`,
-division **Coed 6's BB**, falling back to **Coed 6's B**, alternating between
-the two events until a spot lands **in each event**.
+Target run: **9:00:00 AM CDT, July 22, 2026** (registration opening) for the
+**Wednesday 6:15pm** event `38047`, division **Coed 6's BB**, falling back to
+**Coed 6's B** until a spot lands.
 
 **Architecture: hybrid.** Playwright logs in and holds a valid session; at
 T-0 the raw register HTTP request is fired directly for minimum latency, with
