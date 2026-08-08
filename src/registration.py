@@ -102,56 +102,76 @@ def attempt_register(page: Page, division: str) -> str:
     """
     One full attempt for `division`, returning config.STATUS_{CHECKOUT,MISS}.
     Walks the wizard right up to the payment page and stops. Never pays.
-    Normal "division full / step missing" outcomes return STATUS_MISS so the
-    ladder retries; only unexpected errors are logged.
+
+    Each step is named and logged so the console shows exactly how far it got;
+    on the first stuck step it saves a screenshot and returns STATUS_MISS.
     """
     t = config.ATTEMPT_TIMEOUT_MS
     phone = os.environ.get("VBL_PHONE", "")
+
+    steps: list[tuple[str, "callable"]] = [
+        ("open Register Now",
+         lambda: page.get_by_role("button", name="Register Now")
+                 .nth(config.REGISTER_BUTTON_INDEX).click(timeout=t)),
+        (f"select division {division!r}",
+         lambda: _division_locator(page, division).click(timeout=t)),
+        ("Next (after division)",
+         lambda: page.get_by_role("button", name="Next").click(timeout=t)),
+        ("fill team name",
+         lambda: page.get_by_label("Team Name*").fill(config.TEAM_NAME, timeout=t)),
+        ("Next (after team name)",
+         lambda: page.get_by_role("button", name="Next").click(timeout=t)),
+        ("search captain",
+         lambda: page.get_by_placeholder("Start typing to search")
+                 .fill(config.CAPTAIN_SEARCH, timeout=t)),
+        ("pick captain",
+         lambda: page.get_by_text(config.CAPTAIN_OPTION).first.click(timeout=t)),
+    ]
+    if phone:
+        steps.append(
+            ("fill phone",
+             lambda: page.get_by_label("Mobile Phone*").fill(phone, timeout=t)))
+    steps += [
+        ("Next (after captain)",
+         lambda: page.get_by_role("button", name="Next").click(timeout=t)),
+        ("skip roster",
+         lambda: page.get_by_role(
+             "button", name=re.compile(r"Don.?t have a full roster")).click(timeout=t)),
+        ("Continue",
+         lambda: page.get_by_role("button", name="Continue").click(timeout=t)),
+        ("check accuracy box",
+         lambda: page.get_by_label("All information is accurate").check(timeout=t)),
+        ("check agreement box",
+         lambda: page.get_by_label("I understand and agree to the").check(timeout=t)),
+        ("Add To Cart",
+         lambda: page.get_by_role("button", name="Add To Cart").click(timeout=t)),
+        ("Check Out Now",
+         lambda: page.get_by_role("link", name="Check Out Now").click(timeout=t)),
+    ]
+
+    for desc, fn in steps:
+        try:
+            fn()
+            print(f"[wizard] ok: {desc}", flush=True)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[wizard] STUCK at: {desc}  ({type(exc).__name__})", flush=True)
+            _dump_failure(page, f"{division}-{desc}")
+            return config.STATUS_MISS
+
+    return _confirm_checkout(page)
+
+
+def _dump_failure(page: Page, tag: str) -> None:
+    """Save a screenshot + URL of the stuck screen for diagnosis."""
     try:
-        # 1) Open the registration wizard.
-        page.get_by_role("button", name="Register Now").nth(
-            config.REGISTER_BUTTON_INDEX
-        ).click(timeout=t)
-
-        # 2) Pick the division, then advance.
-        _division_locator(page, division).click(timeout=t)
-        page.get_by_role("button", name="Next").click(timeout=t)
-
-        # 3) Team name.
-        page.get_by_label("Team Name*").fill(config.TEAM_NAME, timeout=t)
-        page.get_by_role("button", name="Next").click(timeout=t)
-
-        # 4) Captain + phone.
-        page.get_by_placeholder("Start typing to search").fill(
-            config.CAPTAIN_SEARCH, timeout=t
-        )
-        page.get_by_text(config.CAPTAIN_OPTION).first.click(timeout=t)
-        if phone:
-            page.get_by_label("Mobile Phone*").fill(phone, timeout=t)
-        page.get_by_role("button", name="Next").click(timeout=t)
-
-        # 5) Skip the full-roster step (smart-quote-proof match).
-        page.get_by_role(
-            "button", name=re.compile(r"Don.?t have a full roster")
-        ).click(timeout=t)
-        page.get_by_role("button", name="Continue").click(timeout=t)
-
-        # 6) Agreements.
-        page.get_by_label("All information is accurate").check(timeout=t)
-        page.get_by_label("I understand and agree to the").check(timeout=t)
-
-        # 7) Cart -> checkout. This is where the spot gets held.
-        page.get_by_role("button", name="Add To Cart").click(timeout=t)
-        page.get_by_role("link", name="Check Out Now").click(timeout=t)
-
-        # 8) Confirm we reached the payment page -> hand off.
-        return _confirm_checkout(page)
-
-    except PWTimeout:
-        return config.STATUS_MISS
+        os.makedirs("screenshots", exist_ok=True)
+        safe = re.sub(r"[^A-Za-z0-9]+", "_", tag)[:60]
+        path = os.path.join("screenshots", f"stuck_{safe}.png")
+        page.screenshot(path=path)
+        print(f"[wizard] url={page.url}", flush=True)
+        print(f"[wizard] screenshot saved: {path}", flush=True)
     except Exception as exc:  # noqa: BLE001
-        print(f"[attempt] non-fatal error for {division!r}: {exc}")
-        return config.STATUS_MISS
+        print(f"[wizard] could not capture failure screen: {exc}", flush=True)
 
 
 def _confirm_checkout(page: Page) -> str:

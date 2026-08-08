@@ -215,6 +215,13 @@ def run(dry_run: bool = False, rehearse: bool = False) -> int:
 
                 time.sleep(config.RETRY_DELAY_MS / 1000)
 
+            if rehearse:
+                # One diagnostic pass through the ladder, then stop (don't loop).
+                log("Rehearsal pass complete. Review the [wizard] lines above "
+                    "to see how far it got.")
+                _keep_open(context)
+                return 1
+
         log("Gave up after retry window. No spot secured.")
         _keep_open(context)
         return 1
