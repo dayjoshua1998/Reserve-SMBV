@@ -129,8 +129,7 @@ def attempt_register(page: Page, division: str) -> str:
     ]
     if phone:
         steps.append(
-            ("fill phone",
-             lambda: page.get_by_label("Mobile Phone*").fill(phone, timeout=t)))
+            ("fill phone (if shown)", lambda: _maybe_fill_phone(page, phone, t)))
     steps += [
         ("Next (after captain)",
          lambda: page.get_by_role("button", name="Next").click(timeout=t)),
@@ -159,6 +158,27 @@ def attempt_register(page: Page, division: str) -> str:
             return config.STATUS_MISS
 
     return _confirm_checkout(page)
+
+
+def _maybe_fill_phone(page: Page, phone: str, t: int) -> None:
+    """
+    Fill the "Mobile Phone*" field only if it's shown and empty. Some profiles
+    already have a phone on file, so the field may be pre-filled or absent --
+    in which case we just move on rather than fail the whole attempt.
+    """
+    field = page.get_by_label("Mobile Phone*")
+    try:
+        field.wait_for(state="visible", timeout=2500)
+    except PWTimeout:
+        print("[wizard]   (phone field not shown -- skipping)", flush=True)
+        return
+    try:
+        if (field.input_value(timeout=1000) or "").strip():
+            print("[wizard]   (phone already filled -- leaving as-is)", flush=True)
+            return
+    except Exception:  # noqa: BLE001
+        pass
+    field.fill(phone, timeout=t)
 
 
 def _dump_failure(page: Page, tag: str) -> None:
