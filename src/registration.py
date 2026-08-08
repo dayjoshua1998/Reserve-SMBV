@@ -125,7 +125,7 @@ def attempt_register(page: Page, division: str) -> str:
          lambda: page.get_by_placeholder("Start typing to search")
                  .fill(config.CAPTAIN_SEARCH, timeout=t)),
         ("pick captain",
-         lambda: page.get_by_text(config.CAPTAIN_OPTION).first.click(timeout=t)),
+         lambda: _pick_captain(page, t)),
     ]
     if phone:
         steps.append(
@@ -160,17 +160,53 @@ def attempt_register(page: Page, division: str) -> str:
     return _confirm_checkout(page)
 
 
+def _pick_captain(page: Page, t: int) -> None:
+    """
+    Click the captain from the search results. Prefer the result that shows the
+    name WITH an email (like "Josh Day - d***@gmail.com") so we don't
+    accidentally click a bare "Josh Day" heading elsewhere on the page.
+    """
+    name = config.CAPTAIN_OPTION
+    with_email = page.get_by_text(re.compile(re.escape(name) + r".*@"))
+    try:
+        with_email.first.wait_for(state="visible", timeout=3000)
+        with_email.first.click(timeout=t)
+        print("[wizard]   (picked captain via name+email result)", flush=True)
+        return
+    except PWTimeout:
+        pass
+    # Fallback: plain name match.
+    page.get_by_text(name).first.click(timeout=t)
+    print("[wizard]   (picked captain via name only)", flush=True)
+
+
+def _phone_field(page: Page):
+    """Find the phone input across a few possible labels/attrs; None if absent."""
+    candidates = [
+        page.get_by_label("Mobile Phone*"),
+        page.get_by_label(re.compile(r"mobile phone", re.I)),
+        page.get_by_label(re.compile(r"\bphone\b", re.I)),
+        page.get_by_placeholder(re.compile(r"phone", re.I)),
+        page.locator("input[type='tel']"),
+    ]
+    for c in candidates:
+        try:
+            loc = c.first
+            loc.wait_for(state="visible", timeout=1500)
+            return loc
+        except PWTimeout:
+            continue
+    return None
+
+
 def _maybe_fill_phone(page: Page, phone: str, t: int) -> None:
     """
-    Fill the "Mobile Phone*" field only if it's shown and empty. Some profiles
-    already have a phone on file, so the field may be pre-filled or absent --
-    in which case we just move on rather than fail the whole attempt.
+    Fill the phone field if we can find one and it's empty. Some profiles have
+    a phone on file (field pre-filled or absent) -- then we just move on.
     """
-    field = page.get_by_label("Mobile Phone*")
-    try:
-        field.wait_for(state="visible", timeout=2500)
-    except PWTimeout:
-        print("[wizard]   (phone field not shown -- skipping)", flush=True)
+    field = _phone_field(page)
+    if field is None:
+        print("[wizard]   (no phone field found -- skipping)", flush=True)
         return
     try:
         if (field.input_value(timeout=1000) or "").strip():
@@ -179,6 +215,7 @@ def _maybe_fill_phone(page: Page, phone: str, t: int) -> None:
     except Exception:  # noqa: BLE001
         pass
     field.fill(phone, timeout=t)
+    print("[wizard]   (filled phone)", flush=True)
 
 
 def _dump_failure(page: Page, tag: str) -> None:
