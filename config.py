@@ -40,6 +40,10 @@ BASE_URL = "https://volleyballbeach.volleyballlife.com"
 # Wednesday 6:15pm event. (Earlier 39809/39810 were the wrong events.)
 EVENT_IDS = [38047]
 
+# An OPEN event with the same registration format, used only by --rehearse so
+# you can practice the full flow while the real event is full/not-yet-open.
+REHEARSE_EVENT_ID = 39782
+
 # Division labels EXACTLY as they appear on the event page. Order = priority.
 DIVISION_PRIORITY = [
     "Coed 6's BB",
@@ -51,6 +55,24 @@ DIVISION_PRIORITY = [
 #   "each_event" -> keep going until we have a spot in every event in EVENT_IDS.
 # Single target event (Wednesday only), so "one_spot" = stop as soon as we're in.
 WIN_CONDITION = "one_spot"
+
+
+# ---------------------------------------------------------------------------
+# Team registration details (fills the wizard)
+# ---------------------------------------------------------------------------
+# These come straight from the captured walkthrough. Your login email/password
+# and phone are read from .env (see .env.example) so no personal secrets live
+# in the repo.
+TEAM_NAME = "Chewblocka's"
+
+# Captain picker: what to type in the "Start typing to search" box, and the
+# visible text of the option to click from the results.
+CAPTAIN_SEARCH = "dayjoshua"
+CAPTAIN_OPTION = "Josh Day"
+
+# The event page shows more than one "Register Now" button; the walkthrough
+# used the 2nd one (0-based index 1). Bump this if the real page differs.
+REGISTER_BUTTON_INDEX = 1
 
 
 # ---------------------------------------------------------------------------
@@ -114,8 +136,11 @@ def attempt_plan() -> list[Target]:
 # through the browser if the API call errors.
 #
 #   "hybrid"  -> try raw HTTP first, fall back to the browser flow.
-#   "browser" -> browser flow only (use this until the API request is captured).
-EXECUTION_MODE = "hybrid"
+#   "browser" -> browser flow only.
+# This is a multi-step TEAM registration wizard (not a single API call), so we
+# drive it through the browser. As we established, the spot is secured the
+# moment we reach checkout, so browser speed is plenty.
+EXECUTION_MODE = "browser"
 
 # The register endpoint + payload are UNKNOWN until captured from your logged-in
 # browser (see docs/CAPTURE.md, Option B). Fill these in from that capture.

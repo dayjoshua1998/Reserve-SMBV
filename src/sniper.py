@@ -114,6 +114,11 @@ def run(dry_run: bool = False, rehearse: bool = False) -> int:
 
     creds = LoginCreds.from_env()
     targets = config.attempt_plan()
+    if rehearse:
+        # Practice against the open test event instead of the real (full) one.
+        targets = [config.Target(config.REHEARSE_EVENT_ID, d)
+                   for d in config.DIVISION_PRIORITY]
+        log(f"REHEARSAL target: event {config.REHEARSE_EVENT_ID} (test event).")
     log(f"Attempt plan ({len(targets)} targets): "
         + " | ".join(f"{t.event_id}:{t.division}" for t in targets))
 
