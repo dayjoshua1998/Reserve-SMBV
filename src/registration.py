@@ -192,26 +192,28 @@ def _fill_payment(page: Page) -> None:
     cvv = os.environ.get("VBL_CARD_CVV", "")
     zipc = os.environ.get("VBL_CARD_ZIP", "")
 
-    # Stripe may use one combined iframe or several; try each matching frame.
-    stripe_frames = page.frame_locator("iframe[name^='__privateStripeFrame']")
-
     def fill_stripe(desc: str, patterns: list[str], value: str) -> None:
         if not value:
             return
-        for pat in patterns:
-            try:
-                stripe_frames.first.get_by_placeholder(
-                    re.compile(pat, re.I)).fill(value, timeout=3000)
-                print(f"[pay] filled {desc}", flush=True)
-                return
-            except Exception:  # noqa: BLE001
-                continue
+        # Combined card element lives in frame 0; split elements use separate
+        # frames. Try each frame, matching by placeholder OR aria-label.
+        for fi in range(3):
+            frame = page.frame_locator("iframe[name^='__privateStripeFrame']").nth(fi)
+            for pat in patterns:
+                rx = re.compile(pat, re.I)
+                for getter in (frame.get_by_placeholder, frame.get_by_label):
+                    try:
+                        getter(rx).first.fill(value, timeout=1000)
+                        print(f"[pay] filled {desc}", flush=True)
+                        return
+                    except Exception:  # noqa: BLE001
+                        continue
         print(f"[pay] could NOT find {desc} field (may need a tweak)", flush=True)
 
-    fill_stripe("card number", [r"card number"], number)
-    fill_stripe("expiry", [r"MM ?/ ?YY", r"expir"], exp)
-    fill_stripe("CVC", [r"CVC", r"CVV", r"security"], cvv)
-    fill_stripe("ZIP", [r"ZIP", r"postal"], zipc)
+    fill_stripe("card number", [r"card number", r"\bcard\b"], number)
+    fill_stripe("expiry", [r"MM ?/ ?YY", r"MM ?YY", r"expir", r"\bdate\b"], exp)
+    fill_stripe("CVC", [r"CVC", r"CVV", r"security", r"code"], cvv)
+    fill_stripe("ZIP", [r"ZIP", r"postal", r"\bzip\b"], zipc)
     print("[pay] payment fields filled -- STOPPING before Submit Payment. "
           "Click Submit Payment yourself.", flush=True)
 
