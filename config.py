@@ -85,6 +85,10 @@ REGISTER_BUTTON_INDEX = 1
 # few minutes at checkout.)
 STOP_AT_PAYMENT = True
 
+# Auto-fill the payment form (card from .env) but NEVER submit -- you click
+# "Submit Payment" yourself. Set False to leave payment entirely blank.
+FILL_PAYMENT = True
+
 # Audible alert on handoff so you don't miss it if you've stepped away.
 ALERT_SOUND = True
 

@@ -159,7 +159,61 @@ def attempt_register(page: Page, division: str) -> str:
             _dump_failure(page, f"{division}-{desc}")
             return config.STATUS_MISS
 
+    if config.FILL_PAYMENT:
+        _fill_payment(page)
+
     return _confirm_checkout(page)
+
+
+def _fill_payment(page: Page) -> None:
+    """
+    Best-effort fill of the checkout payment form, then STOP -- never submits.
+    The card fields are hosted by Stripe in a cross-origin iframe (the recorder
+    can't see inside it, but Playwright can fill it at runtime). The iframe name
+    is randomized per load, so we match it by its stable prefix.
+    """
+    # Receipt email -- a normal page field, not inside the Stripe frame.
+    receipt = os.environ.get("VBL_RECEIPT_EMAIL") or os.environ.get("VBL_EMAIL", "")
+    if receipt:
+        try:
+            page.get_by_label(re.compile(r"Email Receipt", re.I)).fill(
+                receipt, timeout=4000)
+            print("[pay] receipt email filled", flush=True)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[pay] receipt email skipped: {exc}", flush=True)
+
+    number = os.environ.get("VBL_CARD_NUMBER", "")
+    if not number:
+        print("[pay] no VBL_CARD_NUMBER in .env -- leaving payment blank "
+              "for manual entry", flush=True)
+        return
+
+    exp = os.environ.get("VBL_CARD_EXP", "")
+    cvv = os.environ.get("VBL_CARD_CVV", "")
+    zipc = os.environ.get("VBL_CARD_ZIP", "")
+
+    # Stripe may use one combined iframe or several; try each matching frame.
+    stripe_frames = page.frame_locator("iframe[name^='__privateStripeFrame']")
+
+    def fill_stripe(desc: str, patterns: list[str], value: str) -> None:
+        if not value:
+            return
+        for pat in patterns:
+            try:
+                stripe_frames.first.get_by_placeholder(
+                    re.compile(pat, re.I)).fill(value, timeout=3000)
+                print(f"[pay] filled {desc}", flush=True)
+                return
+            except Exception:  # noqa: BLE001
+                continue
+        print(f"[pay] could NOT find {desc} field (may need a tweak)", flush=True)
+
+    fill_stripe("card number", [r"card number"], number)
+    fill_stripe("expiry", [r"MM ?/ ?YY", r"expir"], exp)
+    fill_stripe("CVC", [r"CVC", r"CVV", r"security"], cvv)
+    fill_stripe("ZIP", [r"ZIP", r"postal"], zipc)
+    print("[pay] payment fields filled -- STOPPING before Submit Payment. "
+          "Click Submit Payment yourself.", flush=True)
 
 
 def _pick_captain(page: Page, t: int) -> None:
